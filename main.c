@@ -5,12 +5,12 @@
 
 //  enum kendi değişken türümüzü yaratmamızı sağlıyor
 typedef enum {
-    menu,       //  giriş ekranı
-    gameplay,       //  oyun 
-    game_over,      //  lose ekranı
+    MENU,       //  giriş ekranı
+    GAMEPLAY,       //  oyun 
+    GAME_OVER      //  lose ekranı
 } GameState;
 
-//  düşmanın konumu ve rengi için struct tanımalama
+//  düşman için struct tanımlama
 typedef struct {
     Vector2 pos;
     Color color;
@@ -19,9 +19,22 @@ typedef struct {
     bool active;
 } enemy;
 
+//  mermi yapısı
+typedef struct{
+    Vector2 pos;    //  merminin konumu
+    Vector2 dir;    //  gideceği yön
+    float speed;    //  hızı
+    bool active;   //  mermi havada mı
+    float radius;   //  mermi büyüklüğü
+    
+} projectile;
+
+#define max_bullets 50
+
+
 const int screenWidth = 800;    //  ekran genişlik
 const int screenHeight = 600;   //  ekran yükseklik
-GameState currentState = menu;  //  oyuun başlatınca ilk hangi ekran gelsin
+GameState currentState = MENU;  //  oyuun başlatınca ilk hangi ekran gelsin
 
 //  düşman sayısını istediğimiza zaman değiştirmek için ve düşman sayısını değiştirilemez yapmak için
 #define max_enemies 10
@@ -29,7 +42,7 @@ GameState currentState = menu;  //  oyuun başlatınca ilk hangi ekran gelsin
 //  düşmanlar için dizi
 enemy enemies[max_enemies];
 
-float enemyRadius = 15.0f;
+float enemyRadius = 12.0f;
 
 //  oyuncunun içinde düşman doğmama mekaniği
 Vector2 GetSafeSpawnPosition (Vector2 playerPos, float minDistance){
@@ -53,7 +66,7 @@ Vector2 GetSafeSpawnPosition (Vector2 playerPos, float minDistance){
 
 
 //  kullanacağımız fonksiyonları önceden tanıtma
-void updateGame(void);  //  matematiksel şeylerin döneceği yer
+void updateGame(float dt);  //  matematiksel şeylerin döneceği yer
 void drawGame(void);    //  çizim işlerinin dönceği yer
 //  eklenecek düşmanların hareketini ve çizimini farklı yerlerde hesaplayıp optimize etmek için
 
@@ -65,19 +78,67 @@ void drawGame(void);    //  çizim işlerinin dönceği yer
     float playerSpeed = 5.0f;
 
     float playerRadius = 20.0f;
+
+
+
+        //  mermi havuzu başlatma
+    projectile bullets[max_bullets];
+
+
+    // mermi mekaniği boş mermi varmı diye kontrol edip ateşleme
+void FireBullet(projectile bullets[], Vector2 playerPos, Vector2 targetPos){
+
+    for (int i = 0; i < max_bullets; i++){
+        if(!bullets[i].active){   //  mermi aktif kullanılıyor mu
+
+            bullets[i].active = true;   //  artık kullanılıyor
+            bullets[i].pos = playerPos; //  oyuncunun olduğu yerden çıkıcak
+            bullets[i].speed =200.0f;   //mermi hızı
+            bullets[i].radius = 4.0f;
+
+            //  hedef yönü hesaplama(düşman takip mantığının aynısı)
+            float dx = targetPos.x - playerPos.x;
+            float dy = targetPos.y - playerPos.y;
+            float distance = sqrt(dx * dx + dy * dy);
+
+            //  sıfıra bölünme hatasını engelleme
+            if(distance > 0){
+                //  birim vektöre dönüştürme
+                bullets[i].dir.x = dx / distance;
+                bullets[i].dir.y = dy / distance;
+            }
+            else {
+                bullets[i].dir = (Vector2){1, 0};
+            }
+            break;  //  bir mermi için yapıp döngüden çıkıyoruz
+        }
+
+    }
+    
+}
+
+
+
+
+
+    //  saldırı zamanlayıcısı
+    float shootTimer = 0.0f;
+    float shootCooldown = 0.5f; //  yarım saniyede bir ateş et
     
 
 
 //  programın başladığı yer
 int main(void){
     //  işletim sisteminden grafik belleği isteme
-    InitWindow(screenWidth, screenHeight, "Circle Survivor - v0.1.1");
+    InitWindow(screenWidth, screenHeight, "Circle Survivor - Phase 6: Auto-Turret");
 
     //  fps limitleme
     SetTargetFPS(60);
 
     //  mevcut ekranı menuye alıyoruz
-    GameState currentState = menu;
+    GameState currentState = MENU;
+
+
 
 
     //  düşmanlara rastgele başlangıç değeri verme
@@ -92,17 +153,23 @@ int main(void){
     //  düşmanları güvenli bir yere koyma
     for (int i = 0; i < max_enemies; i++){
         //  oyuncudan en az 100 piksel uzağa koy
-        enemies[i].pos = GetSafeSpawnPosition(playerPos, 100.0f);
+        enemies[i].pos = GetSafeSpawnPosition(playerPos, 300.0f);
         enemies[i].speed = GetRandomValue(2, 4);
         enemies[i].color = RED;
         enemies[i].active = true;
     }
+
+
+    
     
 
     //  oyun döngüsü
     while(!WindowShouldClose()){
+
+        float dt = GetFrameTime();  //  geçen süre(delta time)
+
         //  ilk adım hesaplama klavye girdileri, hareketler, canlar vs.
-        updateGame();
+        updateGame(dt);
         
         //  ikinci adım ekrana oyunun son halini çizdirme
         drawGame();
@@ -115,26 +182,32 @@ int main(void){
 
 }
 
-void updateGame(void){
+void updateGame(float dt){
+
     switch(currentState){
 
             //  enter tuşuna bastığımızda oyun durumu menüden gameplaye geçicek 
             //  IsKeyPressed: tuşa basıldığı anda true döner
-            case menu:
+            case MENU:
             if (IsKeyPressed(KEY_ENTER)){
-                //  oyunu sıfırlama
+                //  oyunu sıfırlama 
+                for (int i = 0; i < max_bullets; i++){
+             bullets[i].active = false;
+    }
                 playerPos = (Vector2){screenWidth / 2, screenHeight / 2};
                 for (int i = 0; i < max_enemies; i++){
-                    enemies[i].pos = GetSafeSpawnPosition(playerPos, 100.0f);
+                    enemies[i].pos = GetSafeSpawnPosition(playerPos, 300.0f);
                 } 
-                currentState = gameplay;
+                currentState = GAMEPLAY;
             }
                 break;
 
             //  hareket mantığı ve oyun içi
             //  IsKeyDown: tuşa basılı tutulduğu sürece true döner
-            case gameplay:
+            case GAMEPLAY:
             
+
+
             //  yukarı
             if(IsKeyDown(KEY_W)) playerPos.y -= playerSpeed;
 
@@ -180,27 +253,68 @@ void updateGame(void){
                     enemies[i].pos.x += (dx / enemyDistance) * enemySpeed;
                     enemies[i].pos.y += (dy / enemyDistance) * enemySpeed;
 
-                } 
+                }
             }
 
             //  düşman çarpışma kontrolü
             for (int i = 0; i < max_enemies; i++){
                 if (CheckCollisionCircles(playerPos, playerRadius, enemies[i].pos, enemyRadius)){
                 //  çarpışma yaşandığı için oyunu bitirme
-                currentState = game_over;
+                currentState = GAME_OVER;
             }
                 
             }
+
+
             
+            //  oto saldırı mantığı en yakındakini bulup ateş etme
+
+            shootTimer += dt;   //  sayacı arttırma
+            
+            if(shootTimer >= shootCooldown){
+                int nearestEnemyIndex = -1;
+                float minDistance = 9999999.0f;
+                for (int i = 0; i < max_enemies; i++){  //  sadece aktif ve varsayılan düşmanlara bakacağız
+                    float dx = enemies[i].pos.x - playerPos.x;
+                    float dy = enemies[i].pos.y - playerPos.y;
+                    float dist = sqrt(dx * dx + dy * dy);
+                
+                    if(dist < minDistance){
+                        minDistance = dist;
+                        nearestEnemyIndex = i;
+                    }
+                }
+                //  eğer düşman bulduysan ateşle
+                if(nearestEnemyIndex != -1){
+                    FireBullet(bullets, playerPos, enemies[nearestEnemyIndex].pos);
+                    shootTimer = 0.0f;   //  sayacı sıfırla                }
+                
+            }
+        }
+
+            //  yeni mermileri güncelleme
+            for (int i = 0; i < max_bullets; i++){
+                if(bullets[i].active){
+                    //  mermiyi ilerletme
+                    bullets[i].pos.x += bullets[i].dir.x * bullets[i].speed * dt;
+                    bullets[i].pos.y += bullets[i].dir.y * bullets[i].speed * dt;
+
+                    //  mermi ekran dışına çıktı mı kontrol etme
+                    if(bullets[i].pos.x < 0 || bullets[i].pos.x > screenWidth || bullets[i].pos.y < 0 || bullets[i].pos.y > screenHeight){
+                        bullets[i].active = false;  //  mermi ekran dışına çıkarsa false durumuna alıyoruz
+                    }
+                }
+            }
+            break;
             
 
-            if(IsKeyPressed(KEY_P)) currentState = game_over;
+            if(IsKeyPressed(KEY_P)) currentState = GAME_OVER;
 
             break;
 
-            case game_over:
+            case GAME_OVER:
             if(IsKeyPressed(KEY_ENTER)){
-                currentState = menu;
+                currentState = MENU;
             }
             break;
         }
@@ -208,7 +322,7 @@ void updateGame(void){
 
 
     void drawGame(void){
-        BeginDrawing();
+         BeginDrawing();
 
         //  arkaplanı her karede temizleme temizlemezsek önceki karedeki çizim kalır ve arkamızda iz bırakırız
         ClearBackground(RAYWHITE);
@@ -216,7 +330,7 @@ void updateGame(void){
         switch(currentState){
 
             //  menüdeki yazılar
-            case menu:
+            case MENU:
             const char *menuText = "Oyuna baslamak için ENTER'A bas";
 
             int menuFontSize = 30; // menü yazısının font büyüklüğü
@@ -232,7 +346,7 @@ void updateGame(void){
             break;
 
             // oyun içi çizimler oyuncu düşmanlar vs.
-            case gameplay:
+            case GAMEPLAY:
             DrawText("Hareket için W, A, S, D", 10, 10, 20, LIGHTGRAY);
             
             //  oyuncumuz
@@ -242,12 +356,19 @@ void updateGame(void){
             for (int i = 0; i < max_enemies; i++){
                 DrawCircleV(enemies[i].pos, enemyRadius, enemies[i].color);
             }
-            
+        
 
+            //  mermilerin çizimi
+            for (int i = 0; i < max_bullets; i++){
+                if(bullets[i].active){
+                    DrawCircleV(bullets[i].pos, bullets[i].radius, BLACK);
+                }
+            }
+            
             break;
 
             //  oyun bitişi
-            case game_over:
+            case GAME_OVER:
             const char *gameOverText = "öldün !\n menü için enter";
               int gameOverFontSize = 40;
 
@@ -264,3 +385,6 @@ void updateGame(void){
     // çizim işlemini bitirme
         EndDrawing();
     }
+
+    
+       
