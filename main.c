@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <math.h>
+#include <stdbool.h>
 #include "raylib.h"
 
 //  enum kendi değişken türümüzü yaratmamızı sağlıyor
@@ -13,7 +14,14 @@ typedef enum {
 typedef struct {
     Vector2 pos;
     Color color;
+    float speed;
+    float healt;
+    bool active;
 } enemy;
+
+const int screenWidth = 800;    //  ekran genişlik
+const int screenHeight = 600;   //  ekran yükseklik
+GameState currentState = menu;  //  oyuun başlatınca ilk hangi ekran gelsin
 
 //  düşman sayısını istediğimiza zaman değiştirmek için ve düşman sayısını değiştirilemez yapmak için
 #define max_enemies 10
@@ -21,10 +29,28 @@ typedef struct {
 //  düşmanlar için dizi
 enemy enemies[max_enemies];
 
+float enemyRadius = 15.0f;
 
-const int screenWidth = 800;    //  ekran genişlik
-const int screenHeight = 600;   //  ekran yükseklik
-GameState currentState = menu;  //  oyuun başlatınca ilk hangi ekran gelsin
+//  oyuncunun içinde düşman doğmama mekaniği
+Vector2 GetSafeSpawnPosition (Vector2 playerPos, float minDistance){
+    Vector2 spawnPos;
+    float distance = 0.0f;
+
+    do{
+        spawnPos.x = (float)GetRandomValue(0, screenWidth);
+        spawnPos.y = (float)GetRandomValue(0, screenHeight);
+
+        float dx = playerPos.x - spawnPos.x;
+        float dy = playerPos.y - spawnPos.y;
+        distance = sqrt(dx * dx + dy * dy);
+
+        return spawnPos;
+    } 
+    while(distance < minDistance);
+}
+
+
+
 
 //  kullanacağımız fonksiyonları önceden tanıtma
 void updateGame(void);  //  matematiksel şeylerin döneceği yer
@@ -39,7 +65,6 @@ void drawGame(void);    //  çizim işlerinin dönceği yer
     float playerSpeed = 5.0f;
 
     float playerRadius = 20.0f;
-
     
 
 
@@ -57,12 +82,22 @@ int main(void){
 
     //  düşmanlara rastgele başlangıç değeri verme
     for (int i = 0; i < max_enemies; i++){
-        enemies[i].pos.x = (float)GetRandomValue(0, screenWidth);
-        enemies[i].pos.y = (float)GetRandomValue(0, screenHeight);
+        enemies[i].pos.x = GetRandomValue(0, screenWidth);
+        enemies[i].pos.y = GetRandomValue(0, screenHeight);
 
         //düşman rengi
         enemies[i].color = RED;
     }
+
+    //  düşmanları güvenli bir yere koyma
+    for (int i = 0; i < max_enemies; i++){
+        //  oyuncudan en az 100 piksel uzağa koy
+        enemies[i].pos = GetSafeSpawnPosition(playerPos, 100.0f);
+        enemies[i].speed = GetRandomValue(2, 4);
+        enemies[i].color = RED;
+        enemies[i].active = true;
+    }
+    
 
     //  oyun döngüsü
     while(!WindowShouldClose()){
@@ -87,9 +122,14 @@ void updateGame(void){
             //  IsKeyPressed: tuşa basıldığı anda true döner
             case menu:
             if (IsKeyPressed(KEY_ENTER)){
+                //  oyunu sıfırlama
+                playerPos = (Vector2){screenWidth / 2, screenHeight / 2};
+                for (int i = 0; i < max_enemies; i++){
+                    enemies[i].pos = GetSafeSpawnPosition(playerPos, 100.0f);
+                } 
                 currentState = gameplay;
-                break;
             }
+                break;
 
             //  hareket mantığı ve oyun içi
             //  IsKeyDown: tuşa basılı tutulduğu sürece true döner
@@ -142,6 +182,16 @@ void updateGame(void){
 
                 } 
             }
+
+            //  düşman çarpışma kontrolü
+            for (int i = 0; i < max_enemies; i++){
+                if (CheckCollisionCircles(playerPos, playerRadius, enemies[i].pos, enemyRadius)){
+                //  çarpışma yaşandığı için oyunu bitirme
+                currentState = game_over;
+            }
+                
+            }
+            
             
 
             if(IsKeyPressed(KEY_P)) currentState = game_over;
@@ -149,6 +199,10 @@ void updateGame(void){
             break;
 
             case game_over:
+            if(IsKeyPressed(KEY_ENTER)){
+                currentState = menu;
+            }
+            break;
         }
 }
 
@@ -182,11 +236,11 @@ void updateGame(void){
             DrawText("Hareket için W, A, S, D", 10, 10, 20, LIGHTGRAY);
             
             //  oyuncumuz
-            DrawCircleV(playerPos, playerRadius, MAROON);
+            DrawCircleV(playerPos, playerRadius, BLUE);
 
             //  düşman ekleme
             for (int i = 0; i < max_enemies; i++){
-                DrawRectangle(enemies[i].pos.x, enemies[i].pos.y, 10, 10, enemies[i].color);
+                DrawCircleV(enemies[i].pos, enemyRadius, enemies[i].color);
             }
             
 
@@ -194,7 +248,7 @@ void updateGame(void){
 
             //  oyun bitişi
             case game_over:
-            const char *gameOverText = "OYUN BITTI";
+            const char *gameOverText = "öldün !\n menü için enter";
               int gameOverFontSize = 40;
 
              //  yazının genişliği
