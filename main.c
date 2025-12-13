@@ -14,7 +14,13 @@ typedef struct {
     Vector2 pos;
     float speed;
     float radius;
-    Texture2D texture;
+    Texture2D texture;  //  oyuncunun resmi
+    Rectangle frameRec; //  şu an gösterilen kare
+    int currentFrame;   //  kaçıncı karedeyiz
+    float frameSpeed;   //  ne kadar hızlı değişsin
+    float framesCounter;    //  zaman sayacı animasyon hızı için
+    bool facingRight;    //  karakter sağa mı bakıyor
+    float scale;    //  karakter ölçeklendirmesi için
 } Player;
 
 //  düşman için struct tanımlama
@@ -25,6 +31,7 @@ typedef struct {
     float health;
     bool active;
     int type;
+    Texture2D texture;
 } enemy;
 
 //  mermi yapısı
@@ -34,6 +41,7 @@ typedef struct{
     float speed;    //  hızı
     bool active;   //  mermi havada mı
     float radius;   //  mermi büyüklüğü
+    Texture2D texture;
     
 } projectile;
 
@@ -66,10 +74,12 @@ float shootTimer = 0.0f;
 //  yarım saniyede bir ateş et
 float shootCooldown = 0.5f;
 
-
-
 //  düşman büyüklüğü
 float enemyRadius = 12.0f;
+
+//  skor sayacı
+int score = 0;
+
 
 
 
@@ -91,17 +101,21 @@ void SpawnEnemy(enemy enemies[]);
 void ResetGame(enemy enemies[]);
 Vector2 GetSafeSpawnPosition(Player player, float minDistance);
 void WaveSpawner(float dt);
-//  eklenecek düşmanların hareketini ve çizimini farklı yerlerde hesaplayıp optimize etmek için
+void InitPlayer(Player *player);
+void UpdatePlayer(Player *player, float dt);
 
 
 
 //  programın başladığı yer
 int main(void){
     //  işletim sisteminden grafik belleği isteme
-    InitWindow(screenWidth, screenHeight, "Phase 8: The Game Flow (Waves & States)");
+    InitWindow(screenWidth, screenHeight, "Phase 10: Animation, Score, and Direction..");
+    
+    InitPlayer(&player);
 
     //  fps limitleme
     SetTargetFPS(144);
+
 
     ResetGame(enemies);
 
@@ -120,6 +134,10 @@ int main(void){
         drawGame();
 
     }
+
+    UnloadTexture(player.texture);
+    UnloadTexture(enemies->texture);
+    UnloadTexture(bullets->texture);
     //  aldığımız belliği geri verme
     CloseWindow();
 
@@ -128,17 +146,52 @@ int main(void){
 }
 
 void UpdatePlayerMovement(float dt){
+
+            //  hareket ediyor mu kontrolü
+            bool isMoving = false;
+
             //  yukarı
-            if(IsKeyDown(KEY_W)) player.pos.y -= player.speed * dt;
+            if(IsKeyDown(KEY_W)) {player.pos.y -= player.speed * dt; isMoving = true;}
 
             // aşağı
-            if(IsKeyDown(KEY_S)) player.pos.y += player.speed * dt;
+            if(IsKeyDown(KEY_S)) {player.pos.y += player.speed * dt; isMoving = true;}
 
             // sağa
-            if(IsKeyDown(KEY_D)) player.pos.x += player.speed * dt;
+            if(IsKeyDown(KEY_D)) {player.pos.x += player.speed * dt; isMoving = true; player.facingRight = true;}
 
             //  sola
-            if(IsKeyDown(KEY_A)) player.pos.x -= player.speed * dt;
+            if(IsKeyDown(KEY_A)) {player.pos.x -= player.speed * dt; isMoving = true; player.facingRight = false;}
+
+
+            //  animasyon mantığı
+
+            if(isMoving){
+                player.framesCounter++; //  frame sayacını artırmaya başlayacağız
+
+                //  sayaç kare sınırına geldi mi (yani mesela 8 karede bir değiştiriceksek 8 e geldi mi)
+                if(player.framesCounter >= (60/player.frameSpeed)){
+                    //  sayacı sıfırla
+                    player.framesCounter = 0;
+
+                    //  sonraki frame e geç
+                    player.currentFrame++;
+                    
+                    //  6 frame olduğu çin 6 ya geldi mi yani film şeridi bitti mi
+                    if(player.currentFrame > 7) player.currentFrame = 0;
+
+                    //  pencereyi sağa kaydır
+                    player.frameRec.x = (float)player.currentFrame * player.texture.width / 8;
+                }
+            }
+
+            else{
+                //  eğer ismoving = false sa yani if in içine girmediyse duruyorsa ilk kareyi göster
+                player.currentFrame = 0;
+                player.frameRec.x = 0;
+
+            }
+
+
 
             //  ekranın solundan dışarıya çıkamaması için
             if(player.pos.x < 20) player.pos.x = 20;
@@ -277,11 +330,12 @@ void UpdateCollisions(projectile bullets[], int bullet_count, enemy enemies[], i
                 //  mermi ile düşman birbirlerine değdi mi ?
                 if(CheckCollisionCircles(bullets[i].pos, bullets[i].radius, enemies[j].pos, enemyRadius)){
 
-                    //  vurulma anı mermiyi yoketme
+                    //  vurulma anı mermiyi yoket
                     bullets[i].active = false;
 
                     //  düşman yok oldu
                     enemies[j].active = false;
+                    score += 1; // skora 1 puan ekle 
                     // !!!!! ileride xp ve altın düşürme kodu gelicek
                     //  !!!!!!! ileride sound effect gelicek (patlama sesi)
                     //  mermi bir düşmanı buldu ve yok oldu diğerlerine bakmaya gerek yok döngüden çıkıyoruz
@@ -393,7 +447,7 @@ void UpdateMenuDrawings(){
 
 
 void UpdateGameplayDrawings(){
-                DrawText("Hareket için W, A, S, D", 10, 10, 20, LIGHTGRAY);
+                DrawText("Hareket için W, A, S, D", 10, 60, 20, LIGHTGRAY);
 
                 //  debug ekranı ekleme
             int activeBullets = 0;
@@ -416,7 +470,44 @@ void UpdateGameplayDrawings(){
 
 
             //  oyuncumuzun çizimi
-            DrawCircleV(player.pos, player.radius, BLUE);
+            //  yön kontrolü
+            Rectangle source = player.frameRec;  //  mevcut pencereyi kopyala
+
+            //  texture ölçeklendirmesi için
+            player.scale = 1.5f;
+            float singleFrameWidth = player.texture.width / 8;
+            float scaledWidth = singleFrameWidth * player.scale;
+            float scaledHeight = player.texture.height * player.scale;
+
+            if(player.facingRight){
+                //  normal genişlik
+                if(source.width < 0) source.width *= -1;
+            } 
+
+            else{
+                //  aynalanmış genişlik yani sola bakma
+                if(source.width > 0) source.width *= -1;
+            }
+
+            // oyuncumuz ekranda nereye çizilecek
+            
+            Rectangle dest ={
+                player.pos.x,
+                player.pos.y,
+                scaledHeight,
+                scaledWidth
+            };
+
+            //  texture ü merkeze alma
+            Vector2 origin = {scaledWidth / 2, scaledHeight / 2};
+
+            //  oyuncuyu çizdirme
+            DrawTexturePro(player.texture, source, dest, origin, 0.0f, WHITE);
+
+
+
+            //  skor tablosu
+            DrawText(TextFormat("SCORE : %i", score), 10, 10, 20, GOLD); 
 
             //  düşman çizimi
             for (int i = 0; i < max_enemies; i++){
@@ -457,8 +548,7 @@ void UpdateGameoverDrawings(){
 void ResetGame(enemy enemies[]){
     //  oyuncuyu merkeze koy
     player.pos = (Vector2){(float) screenWidth / 2, (float) screenHeight / 2};
-    player.speed = 300.0f;
-    player.radius = 20.0f;
+
 
     //  tüm düşmanları silme
     for (int i = 0; i < max_enemies; i++){
@@ -477,6 +567,9 @@ void ResetGame(enemy enemies[]){
 
     //  başlangıç zorluğuna dön
     spawnInterval = 1.5f;
+
+    // skor sıfırlama
+    score = 0;
     
 }
 
@@ -512,6 +605,23 @@ void WaveSpawner(float dt){
             spawnInterval *= 0.99f;
             
         }
+}
+
+void InitPlayer(Player *player){
+    player->pos = (Vector2){400, 300};
+    player->speed = 300.0f;
+    player->radius = 20.0f;
+    player->texture = LoadTexture("assets/player_cat_walk.png");
+    player->currentFrame = 0;
+    player->framesCounter = 0;
+    player->frameSpeed = 8;
+    player->facingRight = true;
+    
+    //  resmin toplam genişliğini kare sayısına bölüyoruz
+    float frameWidth = (float) player->texture.width / 8;
+    player->frameRec = (Rectangle){0.0f, 0.0f, frameWidth, (float)player->texture.height};
+
+
 }
 
 
